@@ -1,0 +1,43 @@
+# Model conversion dependencies -- offline tooling ONLY.
+#
+# These packages are NOT needed to build or run the project, and never ship to
+# the Raspberry Pi. They are needed only to export YOLOv8n to ONNX and compile
+# it with TVM into src/backend_native/generated/.
+#
+# Install into a dedicated virtualenv (roughly 3-5 GB):
+#   python3.11 -m venv .venv-convert
+#   .venv-convert/bin/pip install -r models/convert/requirements.txt
+#
+# AGPL-3.0 WARNING: ultralytics (YOLOv8) is AGPL-3.0, and the generated model
+# sources contain YOLOv8n-derived weights, so they inherit AGPL-3.0.
+# Distributing a binary built from them requires offering the complete
+# corresponding source.
+
+# --- YOLOv8n export ---
+ultralytics>=8.0,<9.0
+torch>=2.0,<3.0
+onnx>=1.14,<2.0
+
+# --- TVM compilation ---
+# 0.26 is required: it is the Relax pipeline that tvm_compile.py targets.
+# Prebuilt wheels exist for macOS arm64, linux x86_64 and linux aarch64, so
+# building TVM from source is not necessary on any supported host.
+apache-tvm==0.26.*
+
+# Required, not optional: Relax rejects the symbolic shapes that a stock
+# Ultralytics export leaves behind, so the graph must be simplified first.
+onnxsim>=0.4,<1.0
+
+# tvm_compile.py cross-checks its output against ONNX Runtime and fails when
+# the two diverge, so this is part of the conversion, not an extra.
+onnxruntime>=1.17
+
+# --- Autotuning (--tune) ---
+# The MetaSchedule cost model is XGBoost-based, and the RPC tracker used for
+# tuning against a remote device is built on tornado.
+xgboost>=2.0
+cloudpickle>=3.0
+psutil>=5.9
+tornado>=6.0
+
+numpy>=1.24,<3.0
