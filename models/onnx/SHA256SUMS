@@ -1,0 +1,34 @@
+# SHA256SUMS -- known-good checksum for the ONNX model used by the onnx mode.
+#
+# download.sh verifies the downloaded file against this list and deletes the
+# partial download on mismatch, so a corrupted or tampered model can never be
+# silently loaded.
+#
+# Provenance: the Ultralytics YOLOv8n export at 320x320:
+#     from ultralytics import YOLO
+#     YOLO("yolov8n.pt").export(format="onnx", imgsz=320, opset=13,
+#                               simplify=False, dynamic=False)
+#   with ultralytics 8.4.120 / torch 2.13.0.
+#
+# 320 rather than the default 640: inference cost scales with the square of
+# the input size, and 640 was unusably slow on a Raspberry Pi 4. The model
+# resolution must match src/core/image_ops.hpp's kInputSize.
+#
+# This digest only applies to a file fetched with `download.sh --fetch` from a
+# URL you host. It is NOT reproducible by exporting locally: ONNX export is not
+# bit-deterministic, so even on the exact versions above a fresh export lands
+# on a different digest. Measured: 9cc4ded5... recorded, f7fd6c4e... re-exported
+# on identical ultralytics/torch.
+#
+# That is harmless, because nothing downstream depends on the bytes. The
+# autotuning database in models/tuning/ keys on the lowered TIR graph, so it
+# applies to any export of this model at this input size -- verified by
+# regenerating against a fresh export and getting the same 87 parallel /
+# 158 vectorized schedules.
+#
+# Re-exporting with a different version or size changes the digest:
+#     shasum -a 256 models/onnx/yolov8n.onnx
+#
+# Format: <sha256hex>  <filename>   (two spaces, GNU sha256sum compatible)
+
+9cc4ded538798c658726518ef94f7c505a58743fd01c7b0cfe58a8258bdf8e62  yolov8n.onnx
