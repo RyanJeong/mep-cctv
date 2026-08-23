@@ -43,8 +43,8 @@
 #include "src/backend_native/native_backend.hpp"
 #endif
 
-#if defined(CCTV_USE_DL_BACKEND)
-#include "src/backend_dl/onnx_backend.hpp"
+#if defined(CCTV_USE_ONNX_BACKEND)
+#include "src/backend_onnx/onnx_backend.hpp"
 #endif
 
 // ---------------------------------------------------------------------------
@@ -60,8 +60,8 @@ struct cctv_engine {
   explicit cctv_engine(const cctv_config& cfg)
       : config(cfg), backend(cfg.conf_threshold, cfg.iou_threshold) {}
 
-#elif defined(CCTV_USE_DL_BACKEND)
-  mep_cctv::backend_dl::OnnxBackend backend;
+#elif defined(CCTV_USE_ONNX_BACKEND)
+  mep_cctv::backend_onnx::OnnxBackend backend;
 
   explicit cctv_engine(const cctv_config& cfg)
       : config(cfg),
@@ -145,8 +145,14 @@ cctv_status cctv_engine_destroy(cctv_engine* engine) {
   return CCTV_OK;
 }
 
-cctv_status cctv_detect_objects(cctv_engine* engine, const uint8_t* rgb,
-                                int width, int height, cctv_detections* out) {
+// NOSONAR cpp:S995 -- engine cannot be pointer-to-const. NativeBackend::Detect
+// is const, but OnnxBackend::Detect is not: Ort::Session::Run mutates the
+// session's internal arena. One public signature has to serve both modes, so
+// it takes the weaker guarantee. cctv_detect_audio, which touches nothing, is
+// declared const.
+cctv_status cctv_detect_objects(/* NOSONAR */ cctv_engine* engine,
+                                const uint8_t* rgb, int width, int height,
+                                cctv_detections* out) {
   if (engine == nullptr || rgb == nullptr || out == nullptr)
     return CCTV_ERR_INVALID_ARG;
 
@@ -165,7 +171,7 @@ cctv_status cctv_detect_objects(cctv_engine* engine, const uint8_t* rgb,
 #if defined(CCTV_USE_NATIVE_BACKEND)
   const std::vector<cctv_box> boxes = engine->backend.Detect(
       tensor.data(), static_cast<int>(tensor.size()), params, width, height);
-#elif defined(CCTV_USE_DL_BACKEND)
+#elif defined(CCTV_USE_ONNX_BACKEND)
   const std::vector<cctv_box> boxes =
       engine->backend.Detect(tensor.data(), params, width, height);
 #else
@@ -179,23 +185,30 @@ cctv_status cctv_detect_objects(cctv_engine* engine, const uint8_t* rgb,
     return CCTV_OK;
   }
 
-  // nothrow: this is a C ABI, so an exception escaping here would be
-  // undefined behaviour. The null return keeps the CCTV_ERR_ALLOC contract
-  // that the malloc version had.
-  out->boxes = new (std::nothrow) cctv_box[static_cast<unsigned>(out->count)];
-  if (out->boxes == nullptr) {
+  // Owned by a unique_ptr until the moment it is handed across the ABI, so
+  // the array cannot leak on any path between here and the release().
+  //
+  // nothrow: this is a C ABI, and an exception escaping it would be undefined
+  // behaviour. The null check preserves the CCTV_ERR_ALLOC contract.
+  std::unique_ptr<cctv_box[]> owned(
+      new (std::nothrow) cctv_box[static_cast<unsigned>(out->count)]);
+  if (owned == nullptr) {
     out->count = 0;
     return CCTV_ERR_ALLOC;
   }
 
-  std::memcpy(out->boxes, boxes.data(),
+  std::memcpy(owned.get(), boxes.data(),
               static_cast<unsigned>(out->count) * sizeof(cctv_box));
+  out->boxes = owned.release();
   return CCTV_OK;
 }
 
 cctv_status cctv_free_detections(cctv_detections* dets) {
   if (dets == nullptr) return CCTV_OK;
-  delete[] dets->boxes;
+  // Reacquire ownership; the unique_ptr releases the array when it goes out
+  // of scope, which keeps the delete paired with the new above in one idiom
+  // rather than two bare operators.
+  const std::unique_ptr<cctv_box[]> owned(dets->boxes);
   dets->boxes = nullptr;
   dets->count = 0;
   return CCTV_OK;
