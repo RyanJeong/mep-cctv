@@ -1,10 +1,5 @@
-# Model conversion dependencies -- offline tooling ONLY.
-#
-# These packages are NOT needed to build or run the project, and never ship to
-# the Raspberry Pi. They are needed only to export YOLOv8n to ONNX and compile
-# it with TVM into src/backend_native/generated/.
-#
-# Install into a dedicated virtualenv (roughly 3-5 GB):
+# Offline export/compilation dependencies; not shipped with the CCTV application.
+# Install into a dedicated virtualenv:
 #   python3.11 -m venv .venv-convert
 #   .venv-convert/bin/pip install -r models/convert/requirements.txt
 #
@@ -19,17 +14,13 @@ torch>=2.0,<3.0
 onnx>=1.14,<2.0
 
 # --- TVM compilation ---
-# 0.26 is required: it is the Relax pipeline that tvm_compile.py targets.
-# Prebuilt wheels exist for macOS arm64, linux x86_64 and linux aarch64, so
-# building TVM from source is not necessary on any supported host.
+# The compiler targets the TVM 0.26 Relax API.
 apache-tvm==0.26.*
 
-# Required, not optional: Relax rejects the symbolic shapes that a stock
-# Ultralytics export leaves behind, so the graph must be simplified first.
+# Simplify symbolic shape operations before Relax lowering.
 onnxsim>=0.4,<1.0
 
-# tvm_compile.py cross-checks its output against ONNX Runtime and fails when
-# the two diverge, so this is part of the conversion, not an extra.
+# Numeric reference for non-embedded host compilation; cross exports skip validation.
 onnxruntime>=1.17
 
 # --- Autotuning (--tune) ---
