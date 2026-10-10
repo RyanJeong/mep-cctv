@@ -77,7 +77,8 @@ namespace {  // NOSONAR - anonymous ns is the C++ idiom for file-local linkage
 /**
  * @brief Maximum accepted image dimension (width or height) in pixels.
  *
- * Bounds accepted geometry; callers still supply a complete width*height*3 buffer.
+ * Bounds accepted geometry; callers still supply a complete width*height*3
+ * buffer.
  */
 constexpr int kMaxImageDim = 65535;
 
@@ -137,8 +138,8 @@ cctv_status cctv_engine_destroy(cctv_engine* engine) {
 // NOSONAR cpp:S995 -- engine cannot be pointer-to-const. NativeBackend::Detect
 // is const, but OnnxBackend::Detect is not: Ort::Session::Run mutates the
 // session's internal arena. One public signature has to serve both modes, so
-// it takes the weaker guarantee. cctv_detect_audio, which does not mutate the engine, is
-// declared const.
+// it takes the weaker guarantee. cctv_detect_audio, which does not mutate the
+// engine, is declared const.
 cctv_status cctv_detect_objects(/* NOSONAR */ cctv_engine* engine,
                                 const uint8_t* rgb, int width, int height,
                                 cctv_detections* out) {
@@ -174,7 +175,8 @@ cctv_status cctv_detect_objects(/* NOSONAR */ cctv_engine* engine,
     return CCTV_OK;
   }
 
-  // Retain ownership until transfer; nothrow preserves CCTV_ERR_ALLOC on failure.
+  // Retain ownership until transfer; nothrow preserves CCTV_ERR_ALLOC on
+  // failure.
   std::unique_ptr<cctv_box[]> owned(
       new (std::nothrow) cctv_box[static_cast<unsigned>(out->count)]);
   if (owned == nullptr) {
