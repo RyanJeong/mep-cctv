@@ -28,10 +28,7 @@ namespace generated {
 
 namespace {  // NOSONAR - anonymous ns is the C++ idiom for file-local linkage
 
-// Tensor geometry, taken from the core headers rather than repeated here.
-// A local copy would silently disagree with the rest of the pipeline the
-// moment kInputSize changes, and the mismatch would surface as garbage
-// detections rather than a compile error.
+// Keep native tensor geometry aligned with shared preprocessing and decoding.
 constexpr int kInputElements = core::kInputElements;
 constexpr int kOutputElements = core::kOutputStride * core::kNumAnchors;
 constexpr int64_t kInputDim = core::kInputSize;
@@ -62,9 +59,7 @@ struct CpuAlloc {
 /**
  * @brief Build the Relax VM around the linked-in model.
  *
- * ffi.SystemLib returns the module assembled from the symbols that the
- * generated blob and register translation units published at static-init
- * time -- no file is opened.
+ * ffi.SystemLib resolves symbols registered by the embedded model at load time.
  */
 tvm::ffi::Module CreateVirtualMachine() {
   const auto system_lib =
@@ -84,7 +79,7 @@ tvm::ffi::Module CreateVirtualMachine() {
  *
  * Function-local statics are initialised exactly once, and C++11 onwards
  * guarantees that initialisation is thread-safe.  Concurrent *calls* into the
- * returned VM are still not safe; the engine serialises them.
+ * returned VM are not guaranteed safe; callers must serialize inference.
  */
 tvm::ffi::Module& CachedVirtualMachine() {
   static tvm::ffi::Module vm = CreateVirtualMachine();
@@ -119,8 +114,8 @@ std::vector<float> Forward(const float* input_nchw, int num_elems) noexcept {
     for (int i = 0; i < kOutputElements; ++i)
       output[static_cast<unsigned>(i)] = src[i];
   } catch (...) {
-    // Never let a TVM exception cross the C ABI; an all-zero tensor decodes
-    // to zero detections, which is the safe outcome for a dropped frame.
+    // Current failure contract returns zeros rather than propagating TVM
+    // errors.
     output.assign(static_cast<unsigned>(kOutputElements), 0.0f);
   }
   return output;

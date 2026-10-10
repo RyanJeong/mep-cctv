@@ -7,7 +7,7 @@
  * @file native_backend.hpp
  * @brief Native TVM backend interface.
  *
- * Wraps the TVM-compiled (placeholder) model functions and exposes the
+ * Wraps the TVM-compiled model or zero-output placeholder and exposes the
  * backend interface consumed by the C ABI layer.
  */
 
@@ -20,9 +20,9 @@ namespace mep_cctv {
 namespace backend_native {
 
 /**
- * @brief Native TVM backend: runs the compiled (placeholder) model.
+ * @brief Runs the compiled model or placeholder selected at build time.
  *
- * Immutable after construction: all inference state is read-only.
+ * Thresholds are immutable; real-model calls use a shared mutable TVM VM.
  */
 class NativeBackend {
  public:
@@ -39,8 +39,8 @@ class NativeBackend {
   /**
    * @brief Run object detection on a preprocessed float tensor.
    *
-   * @param nchw_tensor  Float[1 * 3 * 640 * 640] NCHW tensor.
-   * @param num_elems    Must equal 1*3*640*640.
+   * @param nchw_tensor  Float[core::kInputElements] NCHW tensor.
+   * @param num_elems    Must equal core::kInputElements.
    * @param params       Letterbox params used in preprocessing.
    * @param orig_w       Original image width.
    * @param orig_h       Original image height.
@@ -51,8 +51,8 @@ class NativeBackend {
    *                            boxes.
    * @side_effects_what         std::vector heap allocations inside called
    *                            functions.
-   * @side_effects_impact       O(kOutputElements + detections); ~2.8 MB
-   *                            transient.
+   * @side_effects_impact       O(output elements + detections); real inference
+   *                            also mutates the cached VM.
    * @side_effects_alternatives Pre-allocated buffers would reduce alloc
    *                            pressure but complicate the ownership model.
    */

@@ -2,7 +2,7 @@
 
 /**
  * @file model_placeholder.cc
- * @brief Synthetic stand-in for the TVM-compiled model.
+ * @brief Zero-output stand-in for the TVM-compiled model.
  *
  * See model_placeholder.hpp. Produces deterministic output so the full
  * pipeline can be exercised without a model file.
@@ -22,7 +22,7 @@ namespace backend_native {
 namespace generated {
 
 // ---------------------------------------------------------------------------
-// Constants for synthetic output
+// Output geometry
 // ---------------------------------------------------------------------------
 
 namespace {  // NOSONAR - anonymous ns is the C++ idiom for file-local linkage
@@ -41,15 +41,7 @@ std::vector<float> Forward(const float* input_nchw, int num_elems) noexcept {
   (void) input_nchw;  // Placeholder: input is not used.
   (void) num_elems;
 
-  // All zeros, which decodes to no detections at any confidence threshold.
-  //
-  // This used to inject two convincing boxes so the annotated stream had
-  // something to show. That made a build without the real model look like a
-  // working detector: the page drew labelled rectangles around objects that
-  // were never there, and nothing on screen said otherwise. Reporting
-  // nothing is the honest failure mode -- the pipeline, the encoder and the
-  // page are all still exercised, and an empty frame is a visible prompt to
-  // run the conversion step rather than a convincing lie.
+  // Zero probabilities produce no detections at valid positive thresholds.
   return std::vector<float>(static_cast<unsigned>(kOutputElements), 0.0f);
 }
 

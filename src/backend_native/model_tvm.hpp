@@ -12,18 +12,17 @@
  * actual network.
  *
  * Nothing is read from disk at run time.  The fused kernels and the weights
- * are compiled into libcctv itself by three generated translation units
+ * are linked into libcctv from two generated files
  * (produced by models/convert/tvm_compile.py --emit-embed):
  *
- *   yolov8n_kernels.c   fused TIR kernels from TVM's C backend
- *   yolov8n_blob.cc     weights + Relax VM bytecode, self-registering
- *   yolov8n_register.cc publishes the kernel entry points to the registry
+ *   yolov8n_tuned_kernels.o  target-specific LLVM-generated kernels
+ *   yolov8n_tuned_blob.cc    weights and self-registering Relax VM bytecode
  *
  * At first use the module is fetched from TVM's system-library registry and a
  * Relax VM is created around it.  This costs one lazy initialisation; every
  * later call reuses it.
  *
- * This file is hand-written and committed.  The three generated files above
+ * This file is hand-written and committed. The generated files above
  * are gitignored -- regenerate them before building with
  * CCTV_MODEL=real.
  */
@@ -40,17 +39,17 @@ namespace generated {
 /**
  * @brief Run the TVM-compiled YOLOv8n forward pass.
  *
- * @param input_nchw  Float[1 * 3 * 640 * 640] NCHW tensor, letterboxed and
+ * @param input_nchw  Float[core::kInputElements] NCHW tensor, letterboxed and
  *                    normalised to [0, 1].  Must not be NULL.
- * @param num_elems   Must equal 1 * 3 * 640 * 640 = 1228800.
- * @return            Float vector of shape [1 * 84 * 8400], the raw pre-NMS
- *                    YOLOv8 head output.  Returns an all-zero vector of the
- *                    same size if inference fails, so callers always receive a
+ * @param num_elems   Must equal core::kInputElements.
+ * @return            Float vector of length core::kOutputStride *
+ * core::kNumAnchors, the raw pre-NMS YOLOv8 head output.  Returns an all-zero
+ * vector of the same size if inference fails, so callers always receive a
  *                    well-formed tensor.
  *
  * @side_effects VIOLATION: Non-referentially transparent
  * @side_effects_reason       Lazily constructs a process-wide Relax VM on first
- *                            call and allocates the ~2.8 MB output vector.
+ *                            call and allocates the output vector.
  * @side_effects_what         One-time VM construction; std::vector heap
  *                            allocation.
  * @side_effects_impact       First call pays VM setup; later calls are
