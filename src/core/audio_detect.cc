@@ -24,9 +24,7 @@ cctv_audio_result DetectAcousticActivity(const float* samples,
 
   if (samples == nullptr || num_samples <= 0) return result;
 
-  // Remove the DC offset first. Cheap microphones frequently sit on a
-  // constant bias; measuring raw RMS would report that steady bias as a
-  // roomful of noise and latch the indicator permanently on.
+  // Remove microphone DC bias before measuring signal energy.
   double sum = 0.0;
   for (int i = 0; i < num_samples; ++i) sum += static_cast<double>(samples[i]);
   const double mean = sum / static_cast<double>(num_samples);
@@ -38,8 +36,7 @@ cctv_audio_result DetectAcousticActivity(const float* samples,
   }
 
   const double rms = std::sqrt(sum_sq / static_cast<double>(num_samples));
-  // Clamp so the reported score stays a sane 0..1 even if the caller hands us
-  // samples outside the nominal [-1, 1] range.
+  // Keep the score in [0, 1] for samples outside the nominal range.
   const auto clamped = static_cast<float>(rms > 1.0 ? 1.0 : rms);
 
   result.score = clamped;
