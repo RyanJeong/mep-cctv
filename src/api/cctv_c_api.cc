@@ -8,12 +8,8 @@
  * All cctv_* functions validate arguments and delegate to the selected
  * backend.
  *
- * The boxes array is allocated with new[] and released by
- * cctv_free_detections. Both ends live in this library, so a C caller never
- * touches the allocator -- it only has to call the documented free function,
- * which is the contract cctv.h states. (An earlier comment here claimed
- * malloc was needed "so the caller does not need to link the C++ runtime";
- * that was never true, because the caller does not free the array itself.)
+ * Detection arrays are allocated and released inside this library.
+ * Callers release them with cctv_free_detections.
  */
 
 #include <cassert>
@@ -81,11 +77,7 @@ namespace {  // NOSONAR - anonymous ns is the C++ idiom for file-local linkage
 /**
  * @brief Maximum accepted image dimension (width or height) in pixels.
  *
- * Rejects attacker-supplied dimensions that would cause the index arithmetic
- * `sy * src_w * 3` (before the int64_t promotion in image_ops) to overflow
- * even in the C ABI layer.  65535 is well above 4K (3840 x 2160) so all
- * real cameras pass; a 65535 x 65535 frame would be ~12 GB of RGB data and
- * is clearly erroneous input.
+ * Bounds accepted geometry; callers still supply a complete width*height*3 buffer.
  */
 constexpr int kMaxImageDim = 65535;
 
@@ -98,10 +90,7 @@ constexpr int kMaxImageDim = 65535;
 constexpr int kMaxAudioSamples = 120000000;
 
 /**
- * Copy a cctv_config, safely duplicating the string pointer values.
- * The native backend ignores the path strings, but we store them verbatim
- * (they remain valid as long as the caller's config object is alive, which
- * is sufficient -- the engine does not outlive the config by contract).
+ * Shallow-copy configuration. The model path pointer is not duplicated.
  */
 cctv_config CopyConfig(const cctv_config* src) noexcept {
   cctv_config dst;
@@ -122,7 +111,7 @@ extern "C" {
 cctv_engine* cctv_engine_create(const cctv_config* cfg) {
   if (cfg == nullptr) return nullptr;
 
-  // Clamp thresholds to sensible range.
+  // Replace out-of-range thresholds with defaults.
   cctv_config validated = CopyConfig(cfg);
   if (validated.conf_threshold <= 0.0f || validated.conf_threshold > 1.0f)
     validated.conf_threshold = 0.25f;
@@ -135,7 +124,7 @@ cctv_engine* cctv_engine_create(const cctv_config* cfg) {
     auto engine = std::make_unique<cctv_engine>(validated);
     return engine.release();
   } catch (...) {
-    // Log the exception in a real application; here we just return NULL.
+    // Construction failures are represented by a null engine handle.
     return nullptr;
   }
 }
@@ -148,7 +137,7 @@ cctv_status cctv_engine_destroy(cctv_engine* engine) {
 // NOSONAR cpp:S995 -- engine cannot be pointer-to-const. NativeBackend::Detect
 // is const, but OnnxBackend::Detect is not: Ort::Session::Run mutates the
 // session's internal arena. One public signature has to serve both modes, so
-// it takes the weaker guarantee. cctv_detect_audio, which touches nothing, is
+// it takes the weaker guarantee. cctv_detect_audio, which does not mutate the engine, is
 // declared const.
 cctv_status cctv_detect_objects(/* NOSONAR */ cctv_engine* engine,
                                 const uint8_t* rgb, int width, int height,
@@ -185,11 +174,7 @@ cctv_status cctv_detect_objects(/* NOSONAR */ cctv_engine* engine,
     return CCTV_OK;
   }
 
-  // Owned by a unique_ptr until the moment it is handed across the ABI, so
-  // the array cannot leak on any path between here and the release().
-  //
-  // nothrow: this is a C ABI, and an exception escaping it would be undefined
-  // behaviour. The null check preserves the CCTV_ERR_ALLOC contract.
+  // Retain ownership until transfer; nothrow preserves CCTV_ERR_ALLOC on failure.
   std::unique_ptr<cctv_box[]> owned(
       new (std::nothrow) cctv_box[static_cast<unsigned>(out->count)]);
   if (owned == nullptr) {
@@ -205,9 +190,7 @@ cctv_status cctv_detect_objects(/* NOSONAR */ cctv_engine* engine,
 
 cctv_status cctv_free_detections(cctv_detections* dets) {
   if (dets == nullptr) return CCTV_OK;
-  // Reacquire ownership; the unique_ptr releases the array when it goes out
-  // of scope, which keeps the delete paired with the new above in one idiom
-  // rather than two bare operators.
+  // Reacquire ownership before clearing the caller's result.
   const std::unique_ptr<cctv_box[]> owned(dets->boxes);
   dets->boxes = nullptr;
   dets->count = 0;
@@ -223,10 +206,7 @@ cctv_status cctv_detect_audio(const cctv_engine* engine, const float* samples,
   if (num_samples <= 0 || sample_rate <= 0) return CCTV_ERR_INVALID_ARG;
   if (num_samples > kMaxAudioSamples) return CCTV_ERR_INVALID_ARG;
 
-  // Acoustic activity detection is plain code shared by every backend -- it
-  // never goes through ONNX or TVM. That keeps the three build modes
-  // differing only in how the image model runs, which is what makes the
-  // mode comparison in bench/compare.py meaningful.
+  // Audio uses the same DC-corrected RMS detector in both modes.
   (void) engine;
   *out = mep_cctv::core::DetectAcousticActivity(samples, num_samples);
 
