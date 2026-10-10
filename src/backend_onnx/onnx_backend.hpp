@@ -6,11 +6,8 @@
 /**
  * @file onnx_backend.hpp
  *
- * OnnxBackend is immutable after construction: model paths and thresholds
- * are set once and never changed.  Every inference call is logically pure
- * (the ORT session state is read-only from this class's perspective; ORT
- * itself maintains internal allocation pools that are an implementation
- * detail).
+ * Model paths and thresholds are fixed at construction. Inference allocates
+ * outputs and updates ONNX Runtime's internal session state.
  *
  * Lifetime contract:
  *   - The ORT environment and session are created at construction; if the
@@ -18,11 +15,7 @@
  *     std::runtime_error and the engine pointer returned by
  *     cctv_engine_create will be NULL.
  *
- * This header deliberately does NOT include any ONNX Runtime header. ORT's
- * C API declares exception specifications in typedefs, which is a hard error
- * under C++14, so every translation unit that sees those headers must be
- * compiled as C++17. Hiding the ORT types behind a pimpl confines that to
- * onnx_backend.cc alone and keeps the rest of the project uniformly C++14.
+ * ONNX Runtime types remain behind a pimpl to isolate dependency headers.
  */
 
 #include <memory>
@@ -36,29 +29,16 @@ namespace mep_cctv {
 namespace backend_onnx {
 
 /**
- * @brief ONNX Runtime inference backend (object detection only).
- *
- * The YOLO session is loaded at construction time from disk. Audio is handled
- * by core::DetectAcousticActivity and never reaches this class.
- */
-/**
  * @brief Raised when the ONNX Runtime backend cannot be constructed.
  *
- * A dedicated type rather than std::runtime_error so a caller can distinguish
- * "this model or path is unusable" from any other runtime failure that
- * happens to pass through. The C API converts it to a null handle, but the
- * C++ backend is also used directly by the tests.
+ * The C API converts construction failures to a null engine handle.
  */
 class OnnxBackendError : public std::runtime_error {
  public:
-  // Inherit the base constructors rather than redeclaring one: the class adds
-  // no state, so a hand-written forwarder would only be a copy of what
-  // runtime_error already provides. This also keeps the const char* overload,
-  // which the throw sites use -- forcing them through std::string would build
-  // a temporary for a literal that outlives the process.
   using std::runtime_error::runtime_error;
 };
 
+/** @brief Loads an ONNX object detector; audio uses the shared RMS detector. */
 class OnnxBackend {
  public:
   /**
@@ -91,7 +71,7 @@ class OnnxBackend {
   /**
    * @brief Run YOLO inference on a preprocessed float NCHW tensor.
    *
-   * @param tensor     Float array of length kInputElements (1*3*640*640).
+   * @param tensor     Float array of length core::kInputElements in NCHW order.
    * @param params     Letterbox parameters used during preprocessing.
    * @param orig_w     Original image width in pixels.
    * @param orig_h     Original image height in pixels.
@@ -103,7 +83,7 @@ class OnnxBackend {
    *                            (non-const by ORT API).
    * @side_effects_what         Heap allocation inside ORT session; arena
    *                            mutation.
-   * @side_effects_impact       Proportional to output tensor size; ~2.7 MB.
+   * @side_effects_impact       Proportional to output tensor size.
    * @side_effects_alternatives Output pre-allocation via IoBinding would
    *                            avoid this but increases API complexity.
    */

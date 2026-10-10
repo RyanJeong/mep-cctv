@@ -2,16 +2,14 @@
 
 /**
  * @file onnx_backend.cc
- * @brief ONNX Runtime dl backend implementation.
+ * @brief ONNX Runtime backend implementation.
  *
  * YOLOv8 inference pipeline:
- *   letterbox(rgb) -> float NCHW tensor -> ORT session -> [1,84,8400]
+ *   letterbox(rgb) -> float NCHW tensor -> ORT session -> [1,84,kNumAnchors]
  *   -> DecodeYoloOutput -> NMS -> cctv_box list
  *
- *
- * All ORT calls may throw Ort::Exception.  Detect catches all
- * exceptions internally so that callers receive a safe empty result rather
- * than an unhandled exception propagating through the C ABI.
+ * Detect catches exceptions and returns an empty result; it does not
+ * distinguish inference failure from a frame with no detections.
  */
 
 #include "src/backend_onnx/onnx_backend.hpp"
@@ -21,14 +19,7 @@
 #include <string>
 #include <vector>
 
-// The ONLY translation unit that sees ONNX Runtime. Its C API puts exception
-// specifications in typedefs, which C++14 rejects outright, so this file
-// alone is compiled as C++17 (see CMakeLists.txt).
-//
-// build/include_order is suppressed because cpplint reads a .h in angle
-// brackets as a C system header and wants it above the C++ ones. This is a
-// third-party C++ header, so its place here -- after the standard library and
-// before the project headers -- is what the project's own include order
+// Keep the third-party C++ header after standard headers despite its .h suffix.
 #include <onnxruntime_cxx_api.h>  // NOLINT(build/include_subdir,build/include_order)
 
 #include "src/core/image_ops.hpp"
@@ -40,19 +31,15 @@ namespace backend_onnx {
 namespace {  // NOSONAR - anonymous ns is the C++ idiom for file-local linkage
 
 /**
- * @brief Build a default single-threaded ORT session options struct.
+ * @brief Build ORT session options with automatic intra-op threading.
  *
- * @return SessionOptions using every core, with WARN log level.
+ * @return SessionOptions with graph optimizations enabled.
  *
  * @side_effects None -- referentially transparent.
  */
 Ort::SessionOptions MakeSessionOptions() noexcept {
   Ort::SessionOptions opts;
-  // 0 means "use all available cores". This backend was previously pinned to
-  // a single thread, which made the onnx-versus-native comparison unfair:
-  // the native model runs its autotuned schedules across every core, so
-  // handicapping ONNX Runtime would have flattered native for no good reason.
-  // Both modes now get the whole CPU.
+  // Let ONNX Runtime choose intra-op thread count from available CPU cores.
   opts.SetIntraOpNumThreads(0);
 
   // ORT_ENABLE_ALL turns on the layout and fusion passes that make ORT fast
@@ -73,10 +60,7 @@ class OnnxBackend::Impl {
     Ort::SessionOptions opts = MakeSessionOptions();
     session = Ort::Session(env, yolo_path, opts);
 
-    // Use the ...NameAllocated() accessors rather than GetInputNames(): the
-    // vector-returning form only exists in newer ONNX Runtime (1.27 on a
-    // Homebrew Mac), while the Raspberry Pi build pins 1.18.1, where it does
-    // not. The allocator form is present in every version we support.
+    // Allocated-name accessors support the pinned ONNX Runtime 1.18.1.
     Ort::AllocatorWithDefaultOptions allocator;
     if (session.GetInputCount() == 0 || session.GetOutputCount() == 0)
       throw OnnxBackendError("OnnxBackend: YOLO model has no I/O nodes");
@@ -89,10 +73,7 @@ class OnnxBackend::Impl {
     output_name = std::string(out.get());
   }
 
-  // Both take only constants, so they are initialised in-class: the values
-  // belong to the member, not to one particular constructor. Declaration
-  // order still matters -- env must outlive and precede session, which is
-  // assigned from it in the body.
+  // The environment must be constructed before, and outlive, the session.
   Ort::Env env{ORT_LOGGING_LEVEL_WARNING, "mep_cctv"};
   Ort::Session session{nullptr};
   std::string input_name;
@@ -122,7 +103,7 @@ std::vector<cctv_box> OnnxBackend::Detect(const float* tensor,
                                           const core::LetterboxParams& params,
                                           int orig_w, int orig_h) noexcept {
   try {
-    // YOLO input: [1, 3, 640, 640] float32.
+    // YOLO input: [1, 3, kInputSize, kInputSize] float32.
     const std::array<int64_t, 4> input_shape{1, 3, core::kInputSize,
                                              core::kInputSize};
 
@@ -144,12 +125,12 @@ std::vector<cctv_box> OnnxBackend::Detect(const float* tensor,
 
     if (outputs.empty()) return {};
 
-    // Output tensor shape: [1, 84, 8400] float32.
+    // Expected output: [1, kOutputStride, kNumAnchors] float32.
     const float* raw = outputs[0].GetTensorData<float>();
     return core::DecodeYoloOutput(raw, params, orig_w, orig_h, conf_threshold_,
                                   iou_threshold_);
   } catch (...) {
-    // Swallow ORT exceptions; return empty detections rather than crashing.
+    // Current failure contract returns no detections.
     return {};
   }
 }
