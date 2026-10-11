@@ -20,6 +20,8 @@ for _d in (_BENCH_DIR,):
         sys.path.insert(0, str(_d))
 
 from compare import (  # noqa: E402
+    CompareCli,
+    ComparisonDriver,
     ComparisonReporter,
     ModeMetrics,
     ModeRunner,
@@ -281,3 +283,81 @@ class TestModeRunner:
             run.return_value = MagicMock(returncode=1, stderr="boom")
             with pytest.raises(RuntimeError, match="cmake"):
                 runner.build()
+
+    @pytest.mark.parametrize("returncode", [0, 1])
+    def test_benchmark_invokes_library_and_reports_failure(
+        self, tmp_path: Path, returncode: int
+    ) -> None:
+        spec = ModeSpec("native")
+        spec.build_dir(tmp_path).mkdir()
+        lib = spec.build_dir(tmp_path) / "libcctv.so"
+        lib.write_bytes(b"library")
+        runner = ModeRunner(spec, tmp_path)
+        with patch("compare.subprocess.run") as run:
+            run.return_value = MagicMock(returncode=returncode)
+            report = runner.benchmark(tmp_path, 7, 2)
+        command = run.call_args.args[0]
+        assert command[0] == sys.executable
+        assert command[command.index("--lib") + 1] == str(lib)
+        assert command[command.index("--frames") + 1] == "7"
+        assert command[command.index("--warmup") + 1] == "2"
+        assert report == (tmp_path / "native.json" if returncode == 0 else None)
+
+    def test_benchmark_without_library_does_not_run(self, tmp_path: Path) -> None:
+        with patch("compare.subprocess.run") as run:
+            assert (
+                ModeRunner(ModeSpec("native"), tmp_path).benchmark(tmp_path, 7, 2)
+                is None
+            )
+        run.assert_not_called()
+
+    def test_parse_report_includes_existing_library_size(self, tmp_path: Path) -> None:
+        spec = ModeSpec("native")
+        spec.build_dir(tmp_path).mkdir()
+        (spec.build_dir(tmp_path) / "libcctv.so").write_bytes(b"library")
+        runner = ModeRunner(spec, tmp_path)
+        assert runner.parse_report(self._report(tmp_path, "native")).lib_bytes == 7
+
+
+class TestComparisonDriver:
+    """Exercise orchestration without compiling or timing real models."""
+
+    @pytest.mark.parametrize("skip_build", [False, True])
+    @pytest.mark.parametrize(
+        "outcome", ["success", "build-error", "no-report", "missing"]
+    )
+    def test_execute_reports_only_completed_modes(
+        self, tmp_path: Path, skip_build: bool, outcome: str
+    ) -> None:
+        argv = ["--root", str(tmp_path), "--out", str(tmp_path), "--real-model"]
+        if skip_build:
+            argv.append("--skip-build")
+        args = CompareCli().build_parser().parse_args(argv)
+        report = tmp_path / "native.json"
+        if outcome != "missing":
+            report.write_text("{}")
+        with patch("compare.ModeRunner") as runner_type:
+            runner = runner_type.return_value
+            if outcome == "build-error":
+                runner.build.side_effect = RuntimeError("configure failed")
+            runner.benchmark.return_value = None if outcome == "no-report" else report
+            runner.parse_report.return_value = _metrics("measured")
+            ComparisonDriver(args).execute()
+        text = (tmp_path / "comparison.md").read_text()
+        completed = outcome == "success" or (skip_build and outcome == "build-error")
+        assert ("| measured |" in text) == completed
+        assert runner.build.call_count == (0 if skip_build else 2)
+        assert runner_type.call_args.args[0].generated is True
+
+    def test_cli_passes_arguments_to_driver(self, tmp_path: Path) -> None:
+        with patch("compare.ComparisonDriver") as driver:
+            CompareCli().execute(["--root", str(tmp_path), "--frames", "3"])
+        assert driver.call_args.args[0].frames == 3
+        driver.return_value.execute.assert_called_once()
+
+    def test_main_runs_cli(self) -> None:
+        import compare
+
+        with patch("compare.CompareCli") as cli:
+            compare.main()
+        cli.return_value.execute.assert_called_once()
