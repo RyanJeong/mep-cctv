@@ -58,6 +58,19 @@ class TestRepositoryConfig(unittest.TestCase):
         workflow = self.workflow("learn-ci.yml")
         self.assertEqual({"workflow_dispatch"}, set(workflow["on"]))
 
+    def test_ci_avoids_feature_push_and_pr_duplicates(self) -> None:
+        triggers = self.workflow("ci.yml")["on"]
+        self.assertEqual({"main", "dev"}, set(triggers["push"]["branches"]))
+        self.assertEqual(["**"], triggers["pull_request"]["branches"])
+
+    def test_dependency_scans_use_verified_action_revision(self) -> None:
+        steps = self.workflow("ci.yml")["jobs"]["sbom-cve"]["steps"]
+        scans = [s["uses"] for s in steps if "trivy-action@" in s.get("uses", "")]
+        self.assertEqual(
+            ["aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"] * 2,
+            scans,
+        )
+
     def test_release_requires_successful_main_push_ci(self) -> None:
         workflow = self.workflow("release.yml")
         self.assertEqual(["CI"], workflow["on"]["workflow_run"]["workflows"])
