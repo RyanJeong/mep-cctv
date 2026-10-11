@@ -1,0 +1,96 @@
+# Build
+/build/
+/build-*/
+/bt-*/
+/s-nat/
+*.o
+*.so
+*.so.*
+*.a
+*.dylib
+*.obj
+*.dll
+*.lib
+*.exe
+*.pdb
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+CPackConfig.cmake
+CPackSourceConfig.cmake
+CMakeUserPresets.json
+compile_commands.json
+_deps/
+
+# Coverage
+*.gcda
+*.gcno
+coverage.info
+/coverage/
+/coverage-html/
+coverage*.xml
+htmlcov/
+*.profraw
+*.profdata
+
+# Models (downloaded, not committed)
+/models/onnx/*.onnx
+/models/onnx/*.tflite
+*.pt
+/models/cache/
+
+# Current and legacy generated model outputs; keep tuning data and test fixtures.
+/src/backend_native/generated/*_kernels.o
+/src/backend_native/generated/*_kernels.c
+/src/backend_native/generated/*_blob.cc
+/src/backend_native/generated/*_register.cc
+/src/backend_native/generated/_tvm_*.c
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+.venv-*/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+
+# Benchmark reports
+/bench/reports/
+
+# Release staging
+/dist/
+/mep-cctv-*/
+/mep-cctv-*.zip
+/RELEASE_NOTES.md
+/sbom.cdx.json
+/node_modules/
+
+# Secrets; allow templates with no real credentials.
+.env
+.env.*
+!.env.example
+!.env.sample
+*.key
+*.pem
+*.p12
+secrets/
+credentials.json
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/settings.json
