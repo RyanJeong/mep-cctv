@@ -69,6 +69,7 @@ The image checks the library's target architecture and records both binary forma
 ## Appendix: portability decisions
 
 - **Bullseye base:** building against an older supported glibc reduces the minimum system-library requirement. The base is digest-pinned; upgrading it requires checking target compatibility, not just whether the image builds.
+- **Archived security packages:** Bullseye security packages are fetched from `archive.debian.org` because the original security repository returns 404 for archived packages. Expiry checking is disabled only for this frozen repository; signature and package-hash verification remain enabled. This preserves the older build environment but does not provide ongoing security updates.
 - **Static C++ runtime:** `CCTV_PORTABLE_RUNTIME=ON` removes a dynamic libstdc++/libgcc dependency. It does not make glibc static or certify a particular `GLIBC_*` floor. Verify both binaries and bundled libraries on each supported OS release.
 - **Native compiler execution:** cross-compilation avoids emulating the compiler while still generating target binaries.
 - **Target CPU:** aarch64 cross-build SIMD flags use `cortex-a72`, not the workstation's CPU. Local aarch64 builds use `native` unless overridden.
