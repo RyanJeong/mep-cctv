@@ -44,8 +44,10 @@ Pipeline::Pipeline(const PipelineConfig& config)
   video_ = OpenVideoCapture(config.video_device, config.width, config.height);
   if (video_ == nullptr)
     video_.reset(new SyntheticVideoSource(config.width, config.height));
+
   audio_ = OpenAudioCapture(config.audio_device, config.sample_rate,
                             config.audio_chunk);
+
   if (audio_ == nullptr)
     audio_.reset(new SilentAudioSource(config.sample_rate, config.audio_chunk));
 }
@@ -54,9 +56,11 @@ Pipeline::~Pipeline() { Stop(); }
 
 bool Pipeline::Start() {
   if (!detector_.IsReady() || running_.load()) return false;
+
   running_.store(true);
   video_worker_ = std::thread([this]() { return this->RunVideoLoop(); });
   audio_worker_ = std::thread([this]() { return this->RunAudioLoop(); });
+
   return true;
 }
 
