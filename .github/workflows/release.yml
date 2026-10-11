@@ -1,0 +1,150 @@
+# Copyright (c) 2026 Munseong Jeong <ryan.m.jeong@hotmail.com>
+
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Serialize publication without cancelling a release in progress.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CMake
+        run: python -m pip install "cmake>=4.0,<5.0"
+
+      - name: Read and validate version
+        id: version
+        run: |
+          version=$(sed -n \
+            's/^[[:space:]]*project(.*VERSION[[:space:]]\{1,\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' \
+            CMakeLists.txt)
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::project() must declare one three-part version"
+            exit 1
+          fi
+          grep -Fqx "## [${version}]" CHANGELOG.md || \
+            grep -Eq "^## \[${version//./\\.}\] -" CHANGELOG.md || {
+              echo "::error::CHANGELOG.md does not document ${version}"
+              exit 1
+            }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Configure
+        run: |
+          cmake -B build-release \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCCTV_MODE=native \
+            -DCCTV_MODEL=placeholder \
+            -DBUILD_APP=OFF \
+            -DBUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build-release --parallel 2
+      - name: Test
+        run: ctest --test-dir build-release --output-on-failure --no-tests=error
+      - name: Package development library
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          staging="mep-cctv-${VERSION}-x86_64-placeholder"
+          mkdir -p "$staging/include/cctv"
+          strip --strip-unneeded build-release/libcctv.so
+          cp build-release/libcctv.so "$staging/"
+          cp include/cctv/cctv.h "$staging/include/cctv/"
+          cp LICENSE "$staging/"
+          printf '%s\n' \
+            'Development-only x86_64 Linux library with a zero-output placeholder.' \
+            'No YOLO weights, TVM runtime, ONNX Runtime, or CCTV application included.' \
+            'GoogleTest is used for validation only and is not linked into this library.' \
+            "Source: https://github.com/${GITHUB_REPOSITORY}/tree/${VERIFIED_SHA}" \
+            > "$staging/ARTIFACT.txt"
+          zip -r "$staging.zip" "$staging/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-zip
+          path: mep-cctv-*-x86_64-placeholder.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  github-release:
+    needs: build-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Re-running failed publication is allowed; a version may not move commits.
+      - name: Verify existing tag target
+        env:
+          TAG: ${{ needs.build-release.outputs.tag }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            target=$(git rev-parse "$TAG^{commit}")
+            if [ "$target" != "$VERIFIED_SHA" ]; then
+              echo "::error::$TAG already identifies a different commit; increment the version"
+              exit 1
+            fi
+          fi
+      - name: Generate release notes
+        env:
+          VERSION: ${{ needs.build-release.outputs.version }}
+        run: |
+          printf '%s\n\n' \
+            'Development-only x86_64 Linux placeholder library. Not a Raspberry Pi detector.' \
+            > RELEASE_NOTES.md
+          awk -v header="## [${VERSION}]" \
+            'index($0, header) == 1 { found=1; next }
+             found && /^## / { exit }
+             found { print }' CHANGELOG.md >> RELEASE_NOTES.md
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-zip
+      - name: Publish verified artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build-release.outputs.tag }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          VERSION: ${{ needs.build-release.outputs.version }}
+        run: |
+          asset="mep-cctv-${VERSION}-x86_64-placeholder.zip"
+          releases=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq '.[].tag_name')
+          if grep -Fxq "$TAG" <<< "$releases"; then
+            gh release upload "$TAG" "$asset" --clobber
+          else
+            gh release create "$TAG" "$asset" --target "$VERIFIED_SHA" \
+              --title "mep-cctv $TAG (development placeholder)" \
+              --notes-file RELEASE_NOTES.md
+          fi
