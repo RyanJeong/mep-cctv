@@ -1,0 +1,137 @@
+/* Copyright (c) 2026 Munseong Jeong <ryan.m.jeong@hotmail.com> */
+
+:root {
+  --bg: #12151a;
+  --panel: #1c2128;
+  --text: #e6edf3;
+  --muted: #9aa7b4;
+  --accent: #2ea043;
+  --danger: #d29922;
+  --border: #2d333b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.bar h1 {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pill {
+  padding: 0.3rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+}
+
+.pill--present {
+  background: rgba(46, 160, 67, 0.15);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.pill--absent {
+  background: rgba(154, 167, 180, 0.12);
+  color: var(--muted);
+}
+
+.pill--unknown {
+  background: rgba(210, 153, 34, 0.12);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+main {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 1.25rem;
+}
+
+.viewport {
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.viewport img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin: 1.25rem 0 0;
+}
+
+.stats > div {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+}
+
+.stats dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stats dd {
+  margin: 0.25rem 0 0;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+/* Host metrics: secondary to the detection stats, so smaller and dimmer. */
+.host {
+  margin: 0.6rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* Only the temperature turns colour, and only once it matters: a Pi 4 hits
+   its soft limit at 80 C, which is the point at which frame rate starts to
+   decay for reasons that are otherwise invisible from the browser. */
+.host .warn {
+  color: #e0a030;
+}
+
+.host .hot {
+  color: #e06060;
+}
