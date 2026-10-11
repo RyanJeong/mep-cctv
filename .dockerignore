@@ -1,0 +1,67 @@
+# Keep the Docker build context small and reproducible.
+# Include application sources/assets and model-generated inputs; exclude host state.
+
+# Virtualenvs (the conversion venv alone is several GB)
+.venv*/
+venv/
+**/__pycache__/
+*.pyc
+
+# Local build trees
+build/
+build-*/
+bt-*/
+s-nat/
+dist/
+*.o
+*.so
+*.so.*
+*.dylib
+*.a
+!src/backend_native/generated/*_kernels.o
+
+# VCS and editor state
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+**/.mypy_cache/
+.ruff_cache/
+.coverage*
+coverage*.xml
+coverage.info
+coverage-html/
+htmlcov/
+node_modules/
+.env
+.env.*
+*.key
+*.pem
+*.p12
+secrets/
+credentials.json
+
+# Claude/session tooling
+.claude/
+
+# Model weights and conversion outputs: large and not needed to compile
+# libcctv, which links the already-generated sources.
+models/onnx/*.onnx
+models/cache/
+*.pt
+
+# Applying committed tuning data happens on the workstation, not in this image.
+models/tuning/
+
+# Benchmark output
+bench/reports/*.json
+bench/reports/*.csv
+bench/reports/*.md
+
+# Local notes and CI config play no part in the compile
+docs/
+.github/
