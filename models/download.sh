@@ -9,17 +9,15 @@
 #
 # Description:
 #   Produce models/onnx/yolov8n.onnx, which the onnx mode needs.  By default
-#   the model is EXPORTED locally with Ultralytics, because no public
-#   pre-exported 320x320 ONNX exists to download.  Needed only by the onnx
-#   mode; the native mode has the model
-#   compiled into libcctv.
+#   the model is exported locally with Ultralytics. ONNX mode loads the file;
+#   native model compilation uses it as an offline input.
 #
 #   --fetch downloads instead, and only works against a URL you host: set
 #   YOLO_ONNX_URL to point at it.
 #
 #   Checksum verification: after the download, the SHA-256 digest is compared
-#   against models/onnx/SHA256SUMS.  A mismatch deletes the file and exits
-#   non-zero, so a corrupted or substituted model can never be loaded.
+#   against a populated entry in models/onnx/SHA256SUMS. A mismatch deletes
+#   the file and exits non-zero; missing entries warn and skip verification.
 #
 #   URL override: set YOLO_ONNX_URL in the environment to point at a different
 #   source.
@@ -56,10 +54,8 @@ readonly YOLO_ONNX="${ONNX_DIR}/yolov8n.onnx"
 # Pre-exported ONNX download URL, overridable before calling this script:
 #   YOLO_ONNX_URL=https://... bash models/download.sh
 #
-# yolov8n.onnx: Ultralytics export, opset 13, imgsz=320, no NMS.  The default
-# below is a placeholder -- Ultralytics ships .pt, not .onnx, so it 404s.
-# The download is verified against models/onnx/SHA256SUMS, so a substituted
-# or corrupted file is rejected rather than silently used.
+# The default URL is a placeholder; --fetch needs a hosted export URL.
+# Digest verification requires a populated SHA256SUMS entry.
 YOLO_ONNX_URL="${YOLO_ONNX_URL:-https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.onnx}"
 readonly YOLO_ONNX_URL
 
@@ -78,7 +74,17 @@ VENV_PATH=".venv-convert"
 # ---------------------------------------------------------------------------
 
 show_help() {
-    grep "^# " "$0" | sed 's/^# //' | head -30
+    awk '
+        /^# =====/ {
+            delimiter_count++
+            if (delimiter_count == 3) exit
+            next
+        }
+        delimiter_count == 2 && /^# / {
+            sub(/^# /, "")
+            print
+        }
+    ' "$0"
 }
 
 parse_args() {
@@ -216,9 +222,7 @@ run_fetch() {
     info "Done."
 }
 
-# Export locally with Ultralytics. This is the default because there is no
-# public pre-exported 320x320 ONNX to download: Ultralytics publishes .pt
-# weights, not ONNX, so --fetch only works against a URL you host yourself.
+# Export locally; --fetch instead uses a separately hosted ONNX file.
 run_export() {
     local python_bin
     python_bin="$(locate_python)"
