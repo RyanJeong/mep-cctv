@@ -1,0 +1,212 @@
+# syntax=docker/dockerfile:1
+# Copyright (c) 2026 Munseong Jeong <ryan.m.jeong@hotmail.com>
+# =============================================================================
+# mep-cctv cross-compilation image
+# =============================================================================
+# Run the compiler on the build host and cross-compile when architectures differ.
+# Tests run only for a matching host/target. See docker/README.md for arguments.
+# =============================================================================
+
+# An older, digest-pinned base limits the target glibc requirement.
+FROM --platform=$BUILDPLATFORM debian:bullseye-slim@sha256:f313b4bd62667092a59b3a664d7d3ab8b5e65f41675f48e81455a15dc5abe792 AS build
+
+ARG TARGET_ARCH=aarch64
+ARG MODE=native
+ARG SCALAR_KERNELS=OFF
+ARG BUILD_TYPE=Release
+ARG MODEL=auto
+ARG ONNXRUNTIME_VERSION=1.18.1
+ARG TVM_VERSION=0.26.0
+ARG TVM_GIT_TAG=v0.26.0
+# Provided automatically by buildx: the architecture of the machine running
+# this build ("amd64" or "arm64").
+ARG BUILDARCH
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ---------------------------------------------------------------------------
+# Base build dependencies
+# ---------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        file \
+        git \
+        make \
+        python3 \
+        python3-pip \
+        unzip \
+        wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# CMake >= 4.0
+# Try the older pip interface first, then the PEP 668 override where supported.
+# ---------------------------------------------------------------------------
+RUN (pip3 install "cmake>=4.0" || pip3 install --break-system-packages "cmake>=4.0") \
+    && cmake --version | head -1
+
+# ---------------------------------------------------------------------------
+# Cross toolchain
+# ---------------------------------------------------------------------------
+# Translate target names to Debian architectures before selecting a toolchain.
+RUN set -eux; \
+    case "${TARGET_ARCH}" in \
+        aarch64) target_debarch="arm64" ;; \
+        x86_64)  target_debarch="amd64" ;; \
+        *) echo "TARGET_ARCH must be aarch64 or x86_64, got '${TARGET_ARCH}'" >&2; exit 1 ;; \
+    esac; \
+    echo "${target_debarch}" > /target_debarch; \
+    if [ "${target_debarch}" != "${BUILDARCH}" ]; then \
+        echo "Cross build: host=${BUILDARCH} target=${target_debarch}"; \
+        dpkg --add-architecture "${target_debarch}"; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends "crossbuild-essential-${target_debarch}"; \
+        # Link ALSA for the target, not the compiler host.
+        apt-get install -y --no-install-recommends "libasound2-dev:${target_debarch}"; \
+        rm -rf /var/lib/apt/lists/*; \
+    else \
+        echo "Native build: host==target==${BUILDARCH}; no cross toolchain needed"; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends libasound2-dev; \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# ---------------------------------------------------------------------------
+# ONNX Runtime -- the onnx mode only.
+# Deliberately skipped for MODE=native so the native artifact carries no
+# ONNX Runtime dependency at all (the two backends are mutually exclusive).
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    if [ "${MODE}" = "onnx" ]; then \
+        if [ "${TARGET_ARCH}" = "aarch64" ]; then ort_arch="aarch64"; else ort_arch="x64"; fi; \
+        tarball="onnxruntime-linux-${ort_arch}-${ONNXRUNTIME_VERSION}.tgz"; \
+        url="https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/${tarball}"; \
+        echo "Downloading ONNX Runtime: ${url}"; \
+        wget -q "${url}" -O "/tmp/${tarball}"; \
+        mkdir -p /opt/onnxruntime; \
+        tar -xzf "/tmp/${tarball}" --strip-components=1 -C /opt/onnxruntime; \
+        rm "/tmp/${tarball}"; \
+    else \
+        echo "MODE=${MODE}: skipping ONNX Runtime (native carries no ONNX dependency)"; \
+    fi
+
+# ---------------------------------------------------------------------------
+# TVM runtime -- only when linking the real TVM-compiled model.
+# Build only the static runtime; the host conversion step already emitted kernels.
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    if [ "${MODE}" = "native" ] && [ "${MODEL}" = "real" ]; then \
+        apt-get update; \
+        apt-get install -y --no-install-recommends git; \
+        rm -rf /var/lib/apt/lists/*; \
+        git clone --depth 1 --branch "${TVM_GIT_TAG}" \
+            https://github.com/apache/tvm.git /tvm; \
+        git -C /tvm submodule update --init --depth 1 --recursive \
+            3rdparty/tvm-ffi; \
+        cmake -S /tvm -B /tvm-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DBUILD_STATIC_RUNTIME=ON \
+            -DUSE_LLVM=OFF -DUSE_CUDA=OFF -DUSE_METAL=OFF \
+            -DUSE_VULKAN=OFF -DUSE_OPENCL=OFF -DUSE_LIBBACKTRACE=OFF; \
+        cmake --build /tvm-build --target tvm_runtime --parallel "$(nproc)"; \
+        mkdir -p /opt/tvm-static; \
+        find /tvm-build -name "*.a" -exec cp {} /opt/tvm-static/ \; ; \
+        ls -l /opt/tvm-static; \
+    else \
+        echo "MODEL=${MODEL}: no TVM runtime needed"; \
+    fi
+
+WORKDIR /src
+COPY . .
+
+# ---------------------------------------------------------------------------
+# Configure, build, and (when the binary can run here) test
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    target_debarch="$(cat /target_debarch)"; \
+    toolchain_flag=""; \
+    build_tests="OFF"; \
+    if [ "${target_debarch}" != "${BUILDARCH}" ]; then \
+        if [ "${target_debarch}" = "arm64" ]; then \
+            toolchain_flag="-DCMAKE_TOOLCHAIN_FILE=/src/cmake/toolchains/aarch64-linux-gnu.cmake"; \
+        else \
+            toolchain_flag="-DCMAKE_TOOLCHAIN_FILE=/src/cmake/toolchains/x86_64-linux-gnu.cmake"; \
+        fi; \
+        echo "Cross-compiling -- unit tests will be skipped (cannot execute ${target_debarch} here)"; \
+    else \
+        build_tests="ON"; \
+        echo "Native build -- unit tests will run"; \
+    fi; \
+    ort_flag=""; \
+    if [ "${MODE}" = "onnx" ]; then ort_flag="-DCMAKE_PREFIX_PATH=/opt/onnxruntime"; fi; \
+    scalar_flag=""; \
+    if [ "${MODE}" = "native" ]; then \
+        scalar_flag="-DCCTV_SCALAR_KERNELS=${SCALAR_KERNELS}"; \
+    fi; \
+    # Pass native model/runtime settings only for native mode.
+    tvm_flag=""; \
+    if [ "${MODE}" = "native" ]; then \
+        if [ "${MODEL}" = "real" ]; then \
+            tvm_flag="-DCCTV_MODEL=real \
+                      -DCCTV_TVM_STATIC_ROOT=/opt/tvm-static \
+                      -DCCTV_TVM_INCLUDE_ROOT=/tvm"; \
+        else \
+            tvm_flag="-DCCTV_MODEL=${MODEL}"; \
+        fi; \
+    fi; \
+    cmake -B /build \
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+        -DCCTV_MODE="${MODE}" \
+        ${scalar_flag} \
+        -DCCTV_PORTABLE_RUNTIME=ON \
+        -DBUILD_TESTS="${build_tests}" \
+        ${toolchain_flag} \
+        ${ort_flag} \
+        ${tvm_flag}; \
+    cmake --build /build --parallel "$(nproc)"; \
+    if [ "${build_tests}" = "ON" ]; then ctest --test-dir /build --output-on-failure; fi
+
+# ---------------------------------------------------------------------------
+# Collect artifacts into /out and prove the architecture is what was asked for
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    mkdir -p /out/include/cctv /out/static; \
+    cp /build/libcctv.so /out/; \
+    cp /build/cctv_app /out/; \
+    cp -r /src/app/static/. /out/static/; \
+    cp /src/include/cctv/cctv.h /out/include/cctv/; \
+    cp /src/LICENSE /out/; \
+    # Bundle ONNX Runtime beside libcctv for relative loader lookup.
+    if [ "${MODE}" = "onnx" ]; then \
+        cp -a /opt/onnxruntime/lib/libonnxruntime.so* /out/; \
+        echo "bundled ONNX Runtime:"; ls -l /out/libonnxruntime.so*; \
+    fi; \
+    # No TVM .so is bundled: the runtime is linked statically into libcctv,
+    # so the native artifact really is one shared library.
+    if [ "${MODE}" = "native" ] && [ "${MODEL}" = "real" ]; then \
+        if ldd /out/libcctv.so 2>/dev/null | grep -q tvm; then \
+            echo "FATAL: libcctv still depends on a TVM shared library" >&2; \
+            ldd /out/libcctv.so >&2; exit 1; \
+        fi; \
+        echo "verified: libcctv has no TVM shared-library dependency"; \
+    fi; \
+    file /out/libcctv.so | tee /out/ARCH.txt; \
+    file /out/cctv_app | tee -a /out/ARCH.txt; \
+    case "${TARGET_ARCH}" in \
+        aarch64) file /out/libcctv.so | grep -q "ARM aarch64" \
+                   || { echo "FATAL: expected an aarch64 object" >&2; exit 1; } ;; \
+        x86_64)  file /out/libcctv.so | grep -q "x86-64" \
+                   || { echo "FATAL: expected an x86-64 object" >&2; exit 1; } ;; \
+    esac; \
+    echo "Artifact verified for ${TARGET_ARCH}:"; \
+    find /out -type f
+
+# ---------------------------------------------------------------------------
+# Export stage -- only the artifact.
+# Export binaries, web assets, header, license, and architecture record only.
+# ---------------------------------------------------------------------------
+FROM scratch AS artifact
+COPY --from=build /out /
