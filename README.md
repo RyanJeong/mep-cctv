@@ -129,6 +129,8 @@ Install [benchmark dependencies](bench/requirements-dev.txt) in a virtualenv. `p
 
 [CI](.github/workflows/ci.yml) checks ONNX, native SIMD, and native scalar builds, sanitizers, coverage, Python benchmarks, document/shell syntax, and dependency inventory/scanning. Real TVM inference and Pi device I/O need separate target validation; placeholder tests cannot certify them. C++ coverage merges per-test Clang/LLVM profiles; Python coverage excludes the test modules themselves. [Learn CI](.github/workflows/learn-ci.yml) is a manual teaching example. [Release](.github/workflows/release.yml) publishes an **x86_64 development-only placeholder library** after CI succeeds on `main`, not a Pi detector.
 
+Pull requests run all nine CI jobs once; push events run CI only on `main` and `dev` to avoid duplicating feature-branch PR checks. Codecov adds project and patch coverage checks. Learn CI is never triggered by a push or pull request. The pinned stb JPEG header is patched in the build directory to use unsigned bit accumulation, preserving sanitizer checks without changing upstream source files.
+
 ## License
 
 Project source is licensed under [Apache-2.0](LICENSE). Dependencies and model weights retain their own licenses. Ultralytics YOLOv8 uses AGPL-3.0 (or a separate commercial license); compiling its weights into native code does not remove applicable obligations. Check the licenses and corresponding-source requirements for the exact components you distribute or serve. An open repository alone does not establish compliance for every deployment.
