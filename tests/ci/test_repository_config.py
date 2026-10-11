@@ -60,7 +60,7 @@ class TestRepositoryConfig(unittest.TestCase):
 
     def test_ci_avoids_feature_push_and_pr_duplicates(self) -> None:
         triggers = self.workflow("ci.yml")["on"]
-        self.assertEqual({"main", "dev"}, set(triggers["push"]["branches"]))
+        self.assertEqual({"main"}, set(triggers["push"]["branches"]))
         self.assertEqual(["**"], triggers["pull_request"]["branches"])
 
     def test_dependency_scans_use_verified_action_revision(self) -> None:
