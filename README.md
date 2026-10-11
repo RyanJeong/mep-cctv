@@ -120,6 +120,7 @@ The server uses HTTP, not TLS. A query token is not sufficient protection for an
 | `synthetic` / `silent` source | Device availability, permissions, ALSA build support |
 | ALSA device errors | Use `arecord -l` and pass an explicit `--audio` device |
 | Falling frame rate | Power and thermal status: `vcgencmd get_throttled` |
+| Video works but metrics stay at `-` | Check the browser console and `/status` (including `?token=...` when required) for HTTP or JSON errors; rebuild and deploy both the executable and static assets |
 | Slow native inference | Applied schedules and tuning hardware; see [models](models/README.md) |
 
 ## Benchmarks and CI
