@@ -8,6 +8,7 @@
  */
 
 #include "app/pipeline.hpp"
+#include "app/server.hpp"
 
 #include <chrono>
 #include <thread>
@@ -65,6 +66,21 @@ TEST(PipelineTest, StopWithoutStartReportsFalse) {
   PipelineConfig cfg;
   Pipeline pipeline(cfg);
   EXPECT_FALSE(pipeline.Stop());
+}
+
+TEST(ServerStatusTest, UnavailableMetricsHaveQuotedKeysAndNullValues) {
+  PipelineConfig cfg;
+  cfg.video_device = "/nonexistent";
+  cfg.audio_device = "/nonexistent";
+  Pipeline pipeline(cfg);
+  const mep_cctv::app::Server server(
+      &pipeline, mep_cctv::app::ServerConfig{});
+
+  const std::string json = server.StatusJson();
+  EXPECT_NE(std::string::npos, json.find(R"("detections":0)"));
+  EXPECT_NE(std::string::npos, json.find(R"("fps":0.00)"));
+  EXPECT_NE(std::string::npos,
+            json.find(R"(,"cpu_percent":null,"rss_mb":null,"temp_c":null})"));
 }
 #endif  // CCTV_USE_NATIVE_BACKEND
 
