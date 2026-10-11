@@ -14,6 +14,7 @@
  * the frame they belong to.
  */
 
+#include <array>
 #include <vector>
 
 #include "app/frame.hpp"
@@ -64,11 +65,17 @@ class Annotator {
 
   /** @brief Set one pixel if it lies inside the frame; returns bytes written.
    */
-  int SetPixel(Frame* frame, int x, int y, const uint8_t rgb[3]) const;
+  int SetPixel(Frame* frame, int x, int y,
+               const std::array<uint8_t, 3>& rgb) const;
 
   /** @brief Fill a rectangle, clipped to the frame; returns pixels written. */
   int FillRect(Frame* frame, int x0, int y0, int x1, int y1,
-               const uint8_t rgb[3]) const;
+               const std::array<uint8_t, 3>& rgb) const;
+
+  /** @brief Draw one scaled glyph; returns pixels written. */
+  int DrawGlyph(Frame* frame, const std::array<uint8_t, 5>& glyph, int pen_x,
+                int band_y, int pad, int scale,
+                const std::array<uint8_t, 3>& ink) const;
 
   /**
    * @brief Draw a label band with the class name and score above the box.
@@ -81,7 +88,7 @@ class Annotator {
    * @return Pixels written.
    */
   int DrawLabel(Frame* frame, const cctv_box& box, int x0, int y0,
-                const uint8_t rgb[3]) const;
+                const std::array<uint8_t, 3>& rgb) const;
 };
 
 }  // namespace app
