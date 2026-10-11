@@ -30,6 +30,7 @@ TEST(PipelineTest, ProducesASnapshotWithSyntheticSources) {
   Pipeline pipeline(cfg);
   ASSERT_TRUE(pipeline.GetDetector().IsReady());
   ASSERT_TRUE(pipeline.Start());
+  EXPECT_FALSE(pipeline.Start());
 
   // Wait for the producer thread with a bounded deadline: poll on a short
   // sleep rather than spinning, so the test does not depend on how fast this
