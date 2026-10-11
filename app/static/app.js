@@ -105,7 +105,10 @@
         return res.json();
       })
       .then(render)
-      .catch(setOffline);
+      .catch(function (error) {
+        console.error("Failed to update CCTV status:", error);
+        setOffline();
+      });
   }
 
   poll();
