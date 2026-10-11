@@ -52,7 +52,11 @@
     }
     if (typeof data.temp_c === "number") {
       var cls =
-        data.temp_c >= TEMP_HOT_C ? "hot" : data.temp_c >= TEMP_WARN_C ? "warn" : "";
+        data.temp_c >= TEMP_HOT_C
+          ? "hot"
+          : data.temp_c >= TEMP_WARN_C
+            ? "warn"
+            : "";
       parts.push(metricSpan(data.temp_c.toFixed(1) + " \u00b0C", cls));
     }
     els.host.textContent = "";
