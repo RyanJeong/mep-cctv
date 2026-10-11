@@ -1,0 +1,34 @@
+# Offline export/compilation dependencies; not shipped with the CCTV application.
+# Install into a dedicated virtualenv:
+#   python3.11 -m venv .venv-convert
+#   .venv-convert/bin/pip install -r models/convert/requirements.txt
+#
+# AGPL-3.0 WARNING: ultralytics (YOLOv8) is AGPL-3.0, and the generated model
+# sources contain YOLOv8n-derived weights, so they inherit AGPL-3.0.
+# Distributing a binary built from them requires offering the complete
+# corresponding source.
+
+# --- YOLOv8n export ---
+ultralytics>=8.0,<9.0
+torch>=2.0,<3.0
+onnx>=1.14,<2.0
+
+# --- TVM compilation ---
+# The compiler targets the TVM 0.26 Relax API.
+apache-tvm==0.26.*
+
+# Simplify symbolic shape operations before Relax lowering.
+onnxsim>=0.4,<1.0
+
+# Numeric reference for non-embedded host compilation; cross exports skip validation.
+onnxruntime>=1.17
+
+# --- Autotuning (--tune) ---
+# The MetaSchedule cost model is XGBoost-based, and the RPC tracker used for
+# tuning against a remote device is built on tornado.
+xgboost>=2.0
+cloudpickle>=3.0
+psutil>=5.9
+tornado>=6.0
+
+numpy>=1.24,<3.0

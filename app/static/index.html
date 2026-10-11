@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mep-cctv monitor</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <h1>mep-cctv</h1>
+      <span id="presence" class="pill pill--unknown">connecting...</span>
+    </header>
+
+    <main>
+      <!--
+        The detection rectangles are drawn into the JPEG by the C++ server,
+        so this plain <img> shows them with no canvas overlay and no risk of
+        boxes drifting out of sync with the frame they belong to.
+      -->
+      <div class="viewport">
+        <img id="stream" src="/stream" alt="Live CCTV stream" />
+      </div>
+
+      <dl class="stats">
+        <div>
+          <dt>Objects</dt>
+          <dd id="detections">-</dd>
+        </div>
+        <div>
+          <dt>FPS</dt>
+          <dd id="fps">-</dd>
+        </div>
+        <div>
+          <dt>Backend</dt>
+          <dd id="backend">-</dd>
+        </div>
+        <div>
+          <dt>SIMD</dt>
+          <dd id="simd">-</dd>
+        </div>
+        <div>
+          <dt>Camera</dt>
+          <dd id="video-source">-</dd>
+        </div>
+        <div>
+          <dt>Mic</dt>
+          <dd id="audio-source">-</dd>
+        </div>
+      </dl>
+
+      <!--
+        Host metrics are deliberately a quiet single line rather than more
+        cards: what the camera sees is the point of the page, what the machine
+        costs is context. Hidden entirely until the server reports values, so
+        a platform that cannot measure them shows nothing rather than dashes.
+      -->
+      <p id="host" class="host" hidden></p>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

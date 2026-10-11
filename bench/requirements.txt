@@ -1,0 +1,4 @@
+# Runtime dependencies for the benchmark harness.
+# The CCTV application itself is C++ and needs none of this; these are only
+# for bench/benchmark.py and bench/compare.py.
+numpy>=1.24.0,<3.0.0

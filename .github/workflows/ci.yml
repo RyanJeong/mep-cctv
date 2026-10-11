@@ -1,0 +1,268 @@
+# Copyright (c) 2026 Munseong Jeong <ryan.m.jeong@hotmail.com>
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: "C++ (${{ matrix.mode }} / scalar=${{ matrix.scalar_kernels }})"
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: onnx
+            scalar_kernels: "OFF"
+          - mode: native
+            scalar_kernels: "OFF"
+          - mode: native
+            scalar_kernels: "ON"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build dependencies
+        run: |
+          python -m pip install "cmake>=4.0,<5.0"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev
+      - name: Configure
+        run: |
+          args=(-DCCTV_MODE=${{ matrix.mode }})
+          if [ "${{ matrix.mode }}" = native ]; then
+            args+=(-DCCTV_MODEL=placeholder -DCCTV_SCALAR_KERNELS=${{ matrix.scalar_kernels }})
+          fi
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON "${args[@]}"
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+  sanitizers:
+    name: "${{ matrix.sanitizer }}"
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [ENABLE_ASAN, ENABLE_TSAN]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build dependencies
+        run: |
+          python -m pip install "cmake>=4.0,<5.0"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev
+      - name: Configure
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug \
+            -DCCTV_MODE=native -DCCTV_MODEL=placeholder -DBUILD_TESTS=ON \
+            -D${{ matrix.sanitizer }}=ON
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Prepare TSan address layout
+        if: matrix.sanitizer == 'ENABLE_TSAN'
+        # Ubuntu 24.04's wider ASLR can collide with TSan's shadow mapping.
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          TSAN_OPTIONS: halt_on_error=1
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install coverage tools
+        run: |
+          python -m pip install "cmake>=4.0,<5.0"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang llvm lcov libasound2-dev
+      - name: Configure
+        run: |
+          cmake -B build-cov -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCCTV_MODE=native -DCCTV_MODEL=placeholder \
+            -DBUILD_TESTS=ON -DENABLE_COVERAGE=ON
+      - name: Build
+        run: cmake --build build-cov --parallel 2
+      - name: Test
+        env:
+          LLVM_PROFILE_FILE: ${{ github.workspace }}/build-cov/coverage-%p-%m.profraw
+        run: ctest --test-dir build-cov --output-on-failure --no-tests=error
+      - name: Generate coverage report
+        run: |
+          llvm-profdata merge -sparse build-cov/coverage-*.profraw \
+            -o build-cov/coverage.profdata
+          llvm-cov export build-cov/cctv_tests -object build-cov/libcctv.so \
+            -instr-profile=build-cov/coverage.profdata -format=lcov > coverage.info
+          # Hardware capture is validated on the target, not a hosted runner.
+          lcov --remove coverage.info \
+            '*/googletest/*' '*/_deps/*' '*/usr/*' '*/tests/*' \
+            '*/app/video_capture_v4l2.cc' '*/app/audio_capture_alsa.cc' \
+            --branch-coverage --output-file coverage.info --ignore-errors unused
+          genhtml coverage.info --branch-coverage --output-directory coverage-html \
+            --ignore-errors inconsistent --quiet
+          lcov --list coverage.info
+      - name: Enforce coverage gate
+        env:
+          MIN_LINE_COVERAGE: "90.0"
+          MIN_BRANCH_COVERAGE: "80.1"
+        run: |
+          summary=$(lcov --summary coverage.info --branch-coverage 2>&1)
+          for metric in lines branches; do
+            pct=$(sed -n "s/.*${metric}\.*: \([0-9.]*\)%.*/\1/p" <<< "$summary")
+            if [ "$metric" = lines ]; then
+              minimum="$MIN_LINE_COVERAGE"
+            else
+              minimum="$MIN_BRANCH_COVERAGE"
+            fi
+            if ! [[ "$pct" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+              echo "::error::could not parse $metric coverage"
+              exit 1
+            fi
+            echo "$metric coverage: $pct% (minimum $minimum%)"
+            awk -v got="$pct" -v min="$minimum" \
+              'BEGIN { exit (got >= min) ? 0 : 1 }' || {
+                echo "::error::$metric coverage is below $minimum%"
+                exit 1
+              }
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-html
+          path: coverage-html/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        # The local gate is authoritative; uploads must not depend on fork secrets.
+        with:
+          files: coverage.info
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  python:
+    name: Python tooling
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install -r bench/requirements-dev.txt "cmake>=4.0,<5.0"
+      - name: Formatting
+        run: |
+          black --check bench/ tests/ci/
+          isort --check bench/ tests/ci/
+      - name: Type check
+        run: mypy --config-file bench/pyproject.toml bench/ --exclude tests/
+      - name: Build integration library
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug \
+            -DCCTV_MODE=native -DCCTV_MODEL=placeholder \
+            -DBUILD_APP=OFF -DBUILD_TESTS=OFF
+          cmake --build build --parallel 2
+      - name: Tests and coverage
+        run: |
+          pytest bench/tests tests/ci \
+            --cov=bench --cov-branch --cov-config=bench/pyproject.toml \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage-python.xml --cov-fail-under=80
+      - uses: codecov/codecov-action@v4
+        with:
+          files: coverage-python.xml
+          flags: python
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  sbom-cve:
+    name: Dependency inventory and CVE scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Source inventory is not a complete SBOM of a built Pi artifact.
+      - name: Generate source dependency SBOM
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: cyclonedx
+          output: sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Scan SBOM
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          scan-type: sbom
+          scan-ref: sbom.cdx.json
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+      - name: Audit Python requirements
+        run: |
+          python -m pip install pip-audit
+          pip-audit -r bench/requirements-dev.txt
+          pip-audit -r models/convert/requirements.txt
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell script syntax check
+        run: |
+          while IFS= read -r -d '' script; do
+            bash -n "$script"
+          done < <(find scripts models bench -name '*.sh' -print0)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install markdownlint-cli
+        run: npm install -g markdownlint-cli@0.48.0
+      - name: Markdownlint
+        run: |
+          markdownlint README.md docker/README.md models/README.md \
+            --disable MD013 MD033 MD041 --
+      - name: Validate workflows
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+        run: |
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --location "$base/$archive" -o "$RUNNER_TEMP/$archive"
+          curl --fail --location "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt" \
+            -o "$RUNNER_TEMP/checksums.txt"
+          (cd "$RUNNER_TEMP" && grep "  $archive\$" checksums.txt | sha256sum --check)
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -shellcheck=""
