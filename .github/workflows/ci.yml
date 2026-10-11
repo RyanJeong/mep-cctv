@@ -4,7 +4,7 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main, dev]
   pull_request:
     branches: ["**"]
 
@@ -210,7 +210,7 @@ jobs:
           python-version: "3.11"
       # Source inventory is not a complete SBOM of a built Pi artifact.
       - name: Generate source dependency SBOM
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           scan-type: fs
           scan-ref: .
@@ -223,7 +223,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Scan SBOM
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           scan-type: sbom
           scan-ref: sbom.cdx.json
