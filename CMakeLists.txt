@@ -444,6 +444,7 @@ if(BUILD_APP)
     GIT_TAG f0569113c93ad095470c54bf34a17b36646bbbb5
   )
   FetchContent_MakeAvailable(stb)
+  include(cmake/patch_stb.cmake)
 
   # Select platform capture implementations without exposing platform headers.
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -482,7 +483,7 @@ if(BUILD_APP)
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/include
     PRIVATE
-    ${stb_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}/_deps/stb-patched
   )
 
   target_link_libraries(cctv_app_core PUBLIC cctv httplib::httplib)
@@ -574,6 +575,7 @@ if(BUILD_TESTS)
       tests/app/host_metrics_test.cc
       tests/app/jpeg_encoder_test.cc
       tests/app/pipeline_test.cc
+      tests/app/server_test.cc
       tests/app/sources_test.cc
     )
     target_link_libraries(cctv_tests PRIVATE cctv_app_core)
@@ -687,7 +689,13 @@ if(BUILD_TESTS)
 
   include(GoogleTest)
   # Increase discovery timeout: ORT dylib takes ~15 s to dlopen on first use.
-  gtest_discover_tests(cctv_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 60)
+  if(ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    gtest_discover_tests(cctv_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 60
+      PROPERTIES ENVIRONMENT
+        "LLVM_PROFILE_FILE=${CMAKE_CURRENT_BINARY_DIR}/coverage-%p-%m.profraw")
+  else()
+    gtest_discover_tests(cctv_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 60)
+  endif()
 endif()
 
 # ---------------------------------------------------------------------------
