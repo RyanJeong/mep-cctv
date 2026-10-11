@@ -1,0 +1,25 @@
+{
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+  "C_Cpp.default.cppStandard": "c++14",
+  "C_Cpp.default.cStandard": "c11",
+  "C_Cpp.clang_format_fallbackStyle": "Google",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.copyCompileCommands": "${workspaceFolder}/build/compile_commands.json",
+
+  // The same flags the project lints with, so the editor agrees with a
+  // command-line run. build/include_order is deliberately NOT suppressed:
+  // the code satisfies it, and the one genuine exception carries a NOLINT.
+  "cpplint.lineLength": 80,
+  "cpplint.filters": [
+    "-build/c++11",
+    "-legal/copyright",
+    "-runtime/references"
+  ],
+  "cpplint.excludes": [
+    "${workspaceFolder}/src/backend_native/generated",
+    "${workspaceFolder}/build"
+  ],
+
+  "files.associations": { "*.hpp": "cpp", "*.h": "c" },
+  "editor.formatOnSave": true
+}
