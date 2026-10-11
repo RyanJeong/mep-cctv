@@ -89,7 +89,7 @@ TEST_F(ServerTest, PublicStatusReportsMetricsAndSecurityHeaders) {
 
 TEST_F(ServerTest, TokenProtectsStatusAndStreamButNotHealth) {
   ASSERT_TRUE(Start("test-token"));
-  for (const std::string &path :
+  for (const char* path :
        {"/status", "/stream", "/status?token=wrong"}) {
     const auto response = client_->Get(path);
     ASSERT_TRUE(response);
