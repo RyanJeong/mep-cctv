@@ -93,7 +93,7 @@ class Server::Impl {
   /** @brief Append ,"key":value -- or null when the metric is unavailable. */
   int AppendMetric(std::ostringstream* os, const char* key,
                    double value) const {
-    *os << R"(,")" << key << R"(:)";
+    *os << R"(,")" << key << R"(":)";
 
     if (value < 0.0)
       *os << "null";
